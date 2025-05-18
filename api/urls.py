@@ -1,13 +1,13 @@
 from rest_framework.routers import DefaultRouter
 from django.urls import include, path
-from .views import JournalViewSet, PostViewSet, CommentViewSet, FollowViewSet, JournalExportAPIView
+from .views import JournalViewSet, PostViewSet, FollowViewSet, JournalExportAPIView, UserListView
 
 
 router = DefaultRouter()
 router.register('posts', PostViewSet, basename='post')
-router.register('journals', JournalViewSet, basename='journal')
-router.register(r'posts/(?P<post_id>\d+)/comments',
-                CommentViewSet, basename='comment')
+router.register(r'journals', JournalViewSet, basename='journal')
+# router.register(r'posts/(?P<post_id>\d+)/comments',
+#                 CommentViewSet, basename='comment')
 router.register('follow', FollowViewSet, basename='follow')
 
 urlpatterns = [
@@ -17,6 +17,7 @@ urlpatterns = [
         JournalExportAPIView.as_view(), 
         name='journal-export'
     ),
+    path('v1/users/search/', UserListView.as_view(), name='user-search'),
     path('v1/', include('djoser.urls')),
     path('v1/', include('djoser.urls.jwt')),
 ]

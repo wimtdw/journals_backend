@@ -1,11 +1,11 @@
-from rest_framework import serializers
+from rest_framework import serializers, generics
 from django.db import IntegrityError
 from rest_framework import viewsets, exceptions
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from posts.models import Journal, Post
 from .serializers import (PostSerializer,
-                          CommentSerializer, FollowSerializer,
+                          FollowSerializer,
                           JournalSerializer)
 from rest_framework import mixins
 from rest_framework import filters
@@ -13,8 +13,12 @@ from rest_framework import permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
+from rest_framework.decorators import action
+from djoser.serializers import UserSerializer
 
 
 User = get_user_model()
@@ -26,46 +30,30 @@ class PostViewSet(viewsets.ModelViewSet):
     search_fields = ('text',)
     filterset_fields = ('author__username', 'journal')
 
-    def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
-
-    def perform_update(self, serializer):
-        if serializer.instance.author != self.request.user:
-            raise exceptions.PermissionDenied(
-                'Изменение чужого контента запрещено!')
-        serializer.save(author=self.request.user)
-
-    def perform_destroy(self, serializer):
-        instance = self.get_object()
-        if instance.author != self.request.user:
-            raise exceptions.PermissionDenied(
-                'Удаление чужого контента запрещено!')
-        instance.delete()
-
-
-class CommentViewSet(viewsets.ModelViewSet):
-    serializer_class = CommentSerializer
-
-    def get_post(self):
-        post_id = self.kwargs.get('post_id')
-        post = get_object_or_404(Post, pk=post_id)
-        return post
-
     def get_queryset(self):
-        post = self.get_post()
-        new_queryset = post.comments.all()
-        return new_queryset
+          # Get the current user
+        if not self.request.user.is_authenticated:
+            return Post.objects.filter(is_private=False)
+        user = self.request.user
+        # Create a queryset based on the conditions provided
+        queryset = Post.objects.filter(
+            Q(author=user) | Q(author__isnull=False, is_private=False)
+        ).distinct()
+        
+        return queryset
 
     def perform_create(self, serializer):
-        post = self.get_post()
-        serializer.save(author=self.request.user, post=post)
+        journal = serializer.validated_data.get('journal')
+        if journal.author != self.request.user:
+            raise exceptions.PermissionDenied(
+                'Добавлять посты можно только в свои журналы!')
+        serializer.save(author=self.request.user)
 
     def perform_update(self, serializer):
-        post = self.get_post()
         if serializer.instance.author != self.request.user:
             raise exceptions.PermissionDenied(
                 'Изменение чужого контента запрещено!')
-        serializer.save(author=self.request.user, post=post)
+        serializer.save(author=self.request.user)
 
     def perform_destroy(self, serializer):
         instance = self.get_object()
@@ -73,11 +61,58 @@ class CommentViewSet(viewsets.ModelViewSet):
             raise exceptions.PermissionDenied(
                 'Удаление чужого контента запрещено!')
         instance.delete()
+
+
+
+# class CommentViewSet(viewsets.ModelViewSet):
+#     serializer_class = CommentSerializer
+
+#     def get_post(self):
+#         post_id = self.kwargs.get('post_id')
+#         post = get_object_or_404(Post, pk=post_id)
+#         return post
+
+#     def get_queryset(self):
+#         post = self.get_post()
+#         new_queryset = post.comments.all()
+#         return new_queryset
+
+#     def perform_create(self, serializer):
+#         post = self.get_post()
+#         serializer.save(author=self.request.user, post=post)
+
+#     def perform_update(self, serializer):
+#         post = self.get_post()
+#         if serializer.instance.author != self.request.user:
+#             raise exceptions.PermissionDenied(
+#                 'Изменение чужого контента запрещено!')
+#         serializer.save(author=self.request.user, post=post)
+
+#     def perform_destroy(self, serializer):
+#         instance = self.get_object()
+#         if instance.author != self.request.user:
+#             raise exceptions.PermissionDenied(
+#                 'Удаление чужого контента запрещено!')
+#         instance.delete()
 
 
 class JournalViewSet(viewsets.ModelViewSet):
     queryset = Journal.objects.all()
     serializer_class = JournalSerializer
+    filter_backends = (DjangoFilterBackend,)
+    filterset_fields = ('author__username',)
+
+    def get_queryset(self):
+          # Get the current user
+        if not self.request.user.is_authenticated:
+            return Journal.objects.filter(is_private=False)
+        user = self.request.user
+        # Create a queryset based on the conditions provided
+        queryset = Journal.objects.filter(
+            Q(author=user) | Q(author__isnull=False, is_private=False)
+        ).distinct()
+        
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
@@ -94,6 +129,22 @@ class JournalViewSet(viewsets.ModelViewSet):
             raise exceptions.PermissionDenied(
                 'Удаление чужого контента запрещено!')
         instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='check-pin', url_name='check-pin')
+    def check_pin(self, request, pk=None):
+        journal = self.get_object()
+        pin = request.data.get('pin', '')
+        
+        if not journal.is_private:
+            return Response(
+                {"detail": "Journal is not private"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if journal.check_pin(pin):
+            return Response({'valid': True})
+            
+        return Response({'valid': False}, status=status.HTTP_403_FORBIDDEN)
 
 
 class CreateListViewSet(mixins.CreateModelMixin, mixins.ListModelMixin,
@@ -156,3 +207,13 @@ class JournalExportAPIView(APIView):
         response = HttpResponse('\n'.join(content), content_type='text/plain')
         response['Content-Disposition'] = f'attachment; filename="{journal.title}_export.txt"'
         return response
+
+
+class UserListView(generics.ListAPIView):
+    '''
+    ViewSet для поиска пользователей
+    '''
+    serializer_class = UserSerializer
+    queryset = User.objects.all()
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['^username']

@@ -1,4 +1,4 @@
-from posts.models import Comment, Post, Follow, Journal
+from posts.models import Post, Follow, Journal
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from rest_framework.relations import SlugRelatedField
@@ -28,23 +28,27 @@ class Base64ImageField(serializers.ImageField):
 class PostSerializer(serializers.ModelSerializer):
     author = SlugRelatedField(slug_field='username', read_only=True)
     image = Base64ImageField(required=False, allow_null=True)
-    
+    def validate(self, attrs):
+        journal = attrs.get('journal')
+        if journal and journal.is_private and attrs.get('is_private') is False:
+            raise serializers.ValidationError("Posts in a private journal must be private.")
+        return attrs
     class Meta:
         fields = '__all__'
         model = Post
 
 
-class CommentSerializer(serializers.ModelSerializer):
-    author = serializers.SlugRelatedField(
-        read_only=True, slug_field='username'
-    )
-    post = serializers.PrimaryKeyRelatedField(
-        read_only=True,
-    )
+# class CommentSerializer(serializers.ModelSerializer):
+#     author = serializers.SlugRelatedField(
+#         read_only=True, slug_field='username'
+#     )
+#     post = serializers.PrimaryKeyRelatedField(
+#         read_only=True,
+#     )
 
-    class Meta:
-        fields = '__all__'
-        model = Comment
+#     class Meta:
+#         fields = '__all__'
+#         model = Comment
 
 
 class JournalSerializer(serializers.ModelSerializer):
@@ -58,6 +62,7 @@ class JournalSerializer(serializers.ModelSerializer):
         help_text="Необязательный PIN-код (4-6 цифр)",
         allow_blank=True
     )
+    is_pin_set = serializers.SerializerMethodField()
     class Meta:
         model = Journal
         fields = [
@@ -69,21 +74,48 @@ class JournalSerializer(serializers.ModelSerializer):
             'author',
             'image',
             'is_private',
-            'pin'
+            'pin',
+            'is_pin_set' 
         ]
-        read_only_fields = ['pub_date', 'last_modified', 'author']
+        read_only_fields = ['pub_date', 'last_modified', 'author', 'is_pin_set']
+
+    def get_is_pin_set(self, obj):
+        return obj.pin_code is not None
 
     def validate_pin(self, value):
-        if value and (not value.isdigit() or len(value) < 4):
-            raise serializers.ValidationError(
-                "PIN должен содержать от 4 до 6 цифр."
-            )
+        if value:
+            if not value.isdigit():
+                raise serializers.ValidationError("PIN должен содержать только цифры.")
+            if not (4 <= len(value) <= 6):  # Fixed length check
+                raise serializers.ValidationError("PIN должен содержать от 4 до 6 цифр.")
         return value or None
+    
+    def validate(self, data):
+        # Determine if_private value considering updates
+        is_private = data.get('is_private')
+        if self.instance and is_private is None:
+            is_private = self.instance.is_private
+        else:
+            is_private = data.get('is_private', False)
+
+        # Check if a PIN is provided for a non-private journal
+        pin = data.get('pin', None)
+        if not is_private and pin not in (None, ''):
+            raise serializers.ValidationError({
+                "pin": "PIN cannot be set for a non-private journal."
+            })
+
+        # Ensure PIN is cleared if journal is not private
+        if not is_private:
+            data['pin'] = None
+
+        return data
 
     def create(self, validated_data):
         pin = validated_data.pop('pin', None)
         journal = Journal.objects.create(**validated_data)
         journal.set_pin(pin)
+        journal.save()  
         return journal
 
     def update(self, instance, validated_data):
@@ -113,3 +145,4 @@ class FollowSerializer(serializers.ModelSerializer):
     class Meta:
         fields = ('user', 'following')
         model = Follow
+

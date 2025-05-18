@@ -27,6 +27,21 @@ class Journal(models.Model):
         verbose_name="Защитный PIN-код",
         help_text="Необязательный код для доступа к посту (4-6 цифр)"
     )
+    def save(self, *args, **kwargs):
+        # Check if the journal's privacy status is changing
+        if self.pk:
+            previous = Journal.objects.get(pk=self.pk)
+            if previous.is_private != self.is_private:
+                # If the journal is becoming public, set all posts to public
+                if not self.is_private:
+                    self.posts.update(is_private=False)
+                # If the journal is becoming private, set all posts to private
+                else:
+                    self.posts.update(is_private=True)
+        if not self.is_private:
+            self.pin_code = None
+        
+        super(Journal, self).save(*args, **kwargs)
 
     def set_pin(self, raw_pin):
         if raw_pin:
@@ -60,6 +75,12 @@ class Post(models.Model):
     )
     journal = models.ForeignKey(Journal, on_delete=models.CASCADE,
                               related_name='posts')
+    
+    def save(self, *args, **kwargs):
+        if self.journal.is_private:
+            self.is_private = True
+            
+        super(Post, self).save(*args, **kwargs)
 
     class Meta:
         ordering = ['-pub_date', 'text']
@@ -68,14 +89,14 @@ class Post(models.Model):
         return self.text
 
 
-class Comment(models.Model):
-    author = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name='comments')
-    post = models.ForeignKey(
-        Post, on_delete=models.CASCADE, related_name='comments')
-    text = models.TextField()
-    created = models.DateTimeField(
-        'Дата добавления', auto_now_add=True, db_index=True)
+# class Comment(models.Model):
+#     author = models.ForeignKey(
+#         User, on_delete=models.CASCADE, related_name='comments')
+#     post = models.ForeignKey(
+#         Post, on_delete=models.CASCADE, related_name='comments')
+#     text = models.TextField()
+#     created = models.DateTimeField(
+#         'Дата добавления', auto_now_add=True, db_index=True)
 
 
 class Follow(models.Model):
