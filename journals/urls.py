@@ -10,24 +10,19 @@ from django.conf.urls import url
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
-    path(
-        'redoc/',
-        TemplateView.as_view(template_name='redoc.html'),
-        name='redoc'
-    ),
 
 ]
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL,
                           document_root=settings.MEDIA_ROOT)
-    
+
 
 schema_view = get_schema_view(
     openapi.Info(
-        title="Bookshelf API",
+        title="Journals API",
         default_version='v1',
-        description="Документация для приложения Virtual Bookshelf",
+        description="Документация для приложения Journals",
     ),
     public=True,
 )

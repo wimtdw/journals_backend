@@ -6,15 +6,13 @@ from .views import JournalViewSet, PostViewSet, FollowViewSet, JournalExportAPIV
 router = DefaultRouter()
 router.register('posts', PostViewSet, basename='post')
 router.register(r'journals', JournalViewSet, basename='journal')
-# router.register(r'posts/(?P<post_id>\d+)/comments',
-#                 CommentViewSet, basename='comment')
 router.register('follow', FollowViewSet, basename='follow')
 
 urlpatterns = [
     path('v1/', include(router.urls)),
     path(
-        'v1/journals/<int:pk>/export/', 
-        JournalExportAPIView.as_view(), 
+        'v1/journals/<int:pk>/export/',
+        JournalExportAPIView.as_view(),
         name='journal-export'
     ),
     path('v1/users/search/', UserListView.as_view(), name='user-search'),

@@ -4,7 +4,7 @@ from django.contrib.auth.hashers import make_password, check_password
 
 User = get_user_model()
 
-    
+
 class Journal(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(null=True, blank=True,)
@@ -27,31 +27,29 @@ class Journal(models.Model):
         verbose_name="Защитный PIN-код",
         help_text="Необязательный код для доступа к посту (4-6 цифр)"
     )
+
     def save(self, *args, **kwargs):
-        # Check if the journal's privacy status is changing
         if self.pk:
             previous = Journal.objects.get(pk=self.pk)
             if previous.is_private != self.is_private:
-                # If the journal is becoming public, set all posts to public
                 if not self.is_private:
                     self.posts.update(is_private=False)
-                # If the journal is becoming private, set all posts to private
                 else:
                     self.posts.update(is_private=True)
         if not self.is_private:
             self.pin_code = None
-        
+
         super(Journal, self).save(*args, **kwargs)
 
     def set_pin(self, raw_pin):
         if raw_pin:
             self.pin_code = make_password(raw_pin)
         else:
-            self.pin_code = None  # Сброс пин-кода, если поле пустое
+            self.pin_code = None
 
     def check_pin(self, raw_pin):
         if not self.pin_code:
-            return True  # Если пин не установлен, доступ разрешен
+            return True
         return check_password(raw_pin, self.pin_code)
 
     class Meta:
@@ -74,12 +72,12 @@ class Post(models.Model):
         help_text="Если отмечено, пост доступен только автору"
     )
     journal = models.ForeignKey(Journal, on_delete=models.CASCADE,
-                              related_name='posts')
-    
+                                related_name='posts')
+
     def save(self, *args, **kwargs):
         if self.journal.is_private:
             self.is_private = True
-            
+
         super(Post, self).save(*args, **kwargs)
 
     class Meta:
@@ -87,16 +85,6 @@ class Post(models.Model):
 
     def __str__(self):
         return self.text
-
-
-# class Comment(models.Model):
-#     author = models.ForeignKey(
-#         User, on_delete=models.CASCADE, related_name='comments')
-#     post = models.ForeignKey(
-#         Post, on_delete=models.CASCADE, related_name='comments')
-#     text = models.TextField()
-#     created = models.DateTimeField(
-#         'Дата добавления', auto_now_add=True, db_index=True)
 
 
 class Follow(models.Model):
